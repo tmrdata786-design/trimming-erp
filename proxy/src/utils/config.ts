@@ -39,6 +39,11 @@ export const config = {
   },
   frontend: {
     url: process.env.FRONTEND_URL || 'http://localhost:3000',
+    // Comma-separated list of allowed origins (Manager.io opens the app, and
+    // GitHub Pages serves it, so more than one origin is normal).
+    origins: process.env.FRONTEND_URL
+      ? parseCommaList(process.env.FRONTEND_URL)
+      : ['http://localhost:3000'],
   },
   allowedBusinesses: parseCommaList(process.env.ALLOWED_BUSINESSES) || ['KEEL'],
   launchAccessCodes: parseAccessCodes(),

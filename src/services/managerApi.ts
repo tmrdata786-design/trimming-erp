@@ -75,6 +75,49 @@ export function isAuthenticated(): boolean {
   return getAuth() !== null;
 }
 
+// Manager.io Custom Button launch context.
+// Manager passes context as query string params: business, entity, key, userEmail.
+export interface LaunchContext {
+  business?: string;
+  entity?: string;
+  key?: string;
+  userEmail?: string;
+}
+
+export function readLaunchContext(search: string = window.location.search): LaunchContext {
+  const params = new URLSearchParams(search);
+  const pick = (...names: string[]): string | undefined => {
+    for (const name of names) {
+      const value = params.get(name);
+      if (value) return value;
+    }
+    return undefined;
+  };
+  return {
+    business: pick('business', 'Business', 'businessName'),
+    entity: pick('entity', 'Entity', 'placement'),
+    key: pick('key', 'Key', 'id'),
+    userEmail: pick('userEmail', 'user', 'email'),
+  };
+}
+
+/**
+ * Bootstrap a read-only session from the Custom Button launch context.
+ * Silently no-ops when no context is present or the proxy is unreachable,
+ * so the app keeps working on local data.
+ */
+export async function bootstrapFromLaunch(): Promise<void> {
+  const ctx = readLaunchContext();
+  if (!ctx.business) return;
+  const existing = getAuth();
+  if (existing && existing.business === ctx.business) return;
+  try {
+    await verifyContext(ctx as { business: string; entity?: string; key?: string; userEmail?: string });
+  } catch {
+    // Proxy unavailable or business rejected — stay in local-data mode.
+  }
+}
+
 async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const auth = getAuth();
   const headers: Record<string, string> = {
@@ -93,8 +136,10 @@ async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise
 
   if (!response.ok) {
     if (response.status === 401) {
+      // Session expired/invalid. Do NOT hard-redirect: the app is served under a
+      // sub-path (e.g. /trimming-erp/) and runs on local data. Just drop the stale
+      // token so the next launch re-authenticates.
       clearAuth();
-      window.location.href = '/'; // Redirect to login/launch page
     }
     const error = await response.json().catch(() => ({ error: 'Request failed' }));
     throw new Error(error.error || `HTTP ${response.status}`);

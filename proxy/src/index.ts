@@ -14,9 +14,17 @@ app.use(helmet({
   contentSecurityPolicy: false, // Disable for API
 }));
 
-// CORS - allow frontend origin
+// CORS - allow configured frontend origins (Pages, custom domain, localhost)
+const allowedOrigins = config.frontend.origins;
 app.use(cors({
-  origin: config.frontend.url,
+  origin(origin, callback) {
+    // Allow non-browser clients (no Origin header) and any configured origin.
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error(`Origin ${origin} not allowed by CORS`));
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],

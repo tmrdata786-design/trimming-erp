@@ -4,9 +4,10 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Clock, Search, RotateCcw, QrCode, Shield } from 'lucide-react';
+import { Clock, Search, RotateCcw, QrCode, Shield, Unplug } from 'lucide-react';
 import { UserRole } from '../types';
 import { DataService } from '../services/storage';
+import { getAuth } from '../services/managerApi';
 
 interface TopBarProps {
   currentTabName: string;
@@ -23,6 +24,14 @@ export const TopBar: React.FC<TopBarProps> = ({
 }) => {
   const [currentTime, setCurrentTime] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState<string>('');
+  const [business, setBusiness] = useState<string | null>(null);
+
+  useEffect(() => {
+    const refresh = () => setBusiness(getAuth()?.business ?? null);
+    refresh();
+    const interval = setInterval(refresh, 3000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     const update = () => {
@@ -81,6 +90,24 @@ export const TopBar: React.FC<TopBarProps> = ({
 
       {/* Right Controls: Shift Indicator & Live Clock */}
       <div className="flex items-center gap-4 shrink-0">
+        <div
+          className={`flex items-center gap-2 px-3 py-1 border rounded text-xs ${
+            business
+              ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800'
+              : 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800'
+          }`}
+          title={business ? `Connected to Manager.io business: ${business}` : 'Running on local data — launch from Manager.io to sync'}
+        >
+          {business ? (
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+          ) : (
+            <Unplug className="w-3 h-3 text-amber-500" />
+          )}
+          <span className="font-semibold text-slate-700 dark:text-slate-300">
+            {business ?? 'Local mode'}
+          </span>
+        </div>
+
         <div className="flex items-center gap-2 px-3 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded text-xs">
           <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
           <span className="font-semibold text-slate-700 dark:text-slate-300">Shift A</span>
