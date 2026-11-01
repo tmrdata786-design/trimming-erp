@@ -1,0 +1,213 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop, feature/*]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  # ==========================================
+  # LINT & TYPE CHECK
+  # ==========================================
+  lint-and-typecheck:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install frontend dependencies
+        run: npm ci --legacy-peer-deps
+        working-directory: .
+
+      - name: Install proxy dependencies
+        run: npm ci
+        working-directory: proxy
+
+      - name: Run TypeScript type check (frontend)
+        run: npm run lint
+        working-directory: .
+
+      - name: Run TypeScript type check (proxy)
+        run: npm run build
+        working-directory: proxy
+
+  # ==========================================
+  # UNIT TESTS — FRONTEND
+  # ==========================================
+  frontend-tests:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+    needs: lint-and-typecheck
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Run vitest
+        run: npx vitest run
+        working-directory: .
+
+  # ==========================================
+  # UNIT TESTS — PROXY
+  # ==========================================
+  proxy-tests:
+    name: Proxy Tests
+    runs-on: ubuntu-latest
+    needs: lint-and-typecheck
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: proxy/package-lock.json
+
+      - name: Install proxy dependencies
+        run: npm ci
+        working-directory: proxy
+
+      - name: Run vitest
+        run: npm run test
+        working-directory: proxy
+
+  # ==========================================
+  # BUILD FRONTEND
+  # ==========================================
+  build-frontend:
+    name: Build Frontend
+    runs-on: ubuntu-latest
+    needs: [lint-and-typecheck, frontend-tests, proxy-tests]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Build frontend
+        run: npm run build
+        env:
+          VITE_API_BASE: ${{ secrets.VITE_API_BASE || 'http://localhost:3001/api' }}
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: dist/
+          retention-days: 7
+
+  # ==========================================
+  # BUILD PROXY
+  # ==========================================
+  build-proxy:
+    name: Build Backend Proxy
+    runs-on: ubuntu-latest
+    needs: lint-and-typecheck
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: proxy/package-lock.json
+
+      - name: Install proxy dependencies
+        run: npm ci
+        working-directory: proxy
+
+      - name: Build proxy
+        run: npm run build
+        working-directory: proxy
+
+      - name: Upload proxy artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-dist
+          path: proxy/dist/
+          retention-days: 7
+
+  # ==========================================
+  # DEPLOY TO GITHUB PAGES (manual dispatch or main branch push)
+  # ==========================================
+  deploy-github-pages:
+    name: Deploy to GitHub Pages
+    runs-on: ubuntu-latest
+    needs: [build-frontend]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Download frontend artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: dist/
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload to GitHub Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  # ==========================================
+  # SECURITY SCAN (manual due to required secrets)
+  # ==========================================
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run npm audit (frontend)
+        run: npm audit --audit-level=high
+        continue-on-error: true
+        working-directory: .
+
+      - name: Run npm audit (proxy)
+        run: npm audit --audit-level=high
+        continue-on-error: true
+        working-directory: proxy
